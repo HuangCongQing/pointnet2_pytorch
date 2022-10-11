@@ -6,7 +6,8 @@ from torch.autograd import Variable
 import numpy as np
 import torch.nn.functional as F
 
-
+# STN3d:T-Net 3*3 transform
+#类似一个mini-PointNet
 class STN3d(nn.Module):
     def __init__(self, channel):
         super(STN3d, self).__init__()
