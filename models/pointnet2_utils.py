@@ -106,7 +106,7 @@ def farthest_point_sample(xyz, npoint):
         mask = dist < distance
         distance[mask] = dist[mask]
         #从distance矩阵取出最远的点为farthest下标,继续下一轮迭代
-        farthest = torch.max(distance, -1)[1] # 更新下标
+        farthest = torch.max(distance, -1)[1] # 更新下标(dim=1，找出每行的最大值，函数会返回两个tensor，第一个tensor是每行的最大值；第二个tensor是每行最大值的索引，两个tensor都是一维。)  https://www.yuque.com/huangzhongqing/pytorch/aq5rtg#ot003
     return centroids
 
 
