@@ -8,6 +8,7 @@ def timeit(tag, t):
     print("{}: {}s".format(tag, time() - t))
     return time()
 
+# 归一化点云，使用以centroid为中心的坐标，球半径为1
 def pc_normalize(pc):
     l = pc.shape[0]
     centroid = np.mean(pc, axis=0)
@@ -16,6 +17,11 @@ def pc_normalize(pc):
     pc = pc / m
     return pc
 
+#square distance函数用来在pall queryi过程中确定每一个点距离采样点的距离。
+#函数输入是两组点，N为第一组点src的个数，M为第二组点dst的个数，C为输入点的通道数（如果是xyz时C=3)
+#函数返回的是两组点两两之间的欧几里德距离，即N×M的矩阵
+#在训练中数据以Mini-Batch的形式输入、所以一个Batch数量的维度为B。
+# https://youtu.be/VupEDNvfwZI?t=10844
 def square_distance(src, dst):
     """
     Calculate Euclid distance between each two points.
@@ -40,6 +46,10 @@ def square_distance(src, dst):
     return dist
 
 
+#按照输入的点云数据和索引返回索引的点云数据。
+#例如points为B×2048×3点云，idx为[5,666,1000,20001
+#则返回Batch中第5,666,1000,2000个点组成的B×4×3的点云集
+#如果idx为一个[B,D1,…DN],则它会按照idx中的维度结构将其提取成[B,D1,..DN,C]。
 def index_points(points, idx):
     """
 
@@ -59,28 +69,44 @@ def index_points(points, idx):
     new_points = points[batch_indices, idx, :]
     return new_points
 
-
+#farthest point sample函数完成最远点采样：
+#从一个输入点云中按照所需要的点的个数npoint采样出足够多的点，
+#并且点与点之间的距离要足够远
+#返回结果是npoint个采样点在原始点云中的索引。
 def farthest_point_sample(xyz, npoint):
     """
     Input:
-        xyz: pointcloud data, [B, N, 3]
-        npoint: number of samples
+        xyz: pointcloud data, [B, N, 3]  假如batch_size=4
+        npoint: number of samples 采样数量
     Return:
         centroids: sampled pointcloud index, [B, npoint]
     """
     device = xyz.device
     B, N, C = xyz.shape
+    #初始化一个centroids矩阵，用于存储npoint个采样点的系S位置，大小为B×npoint
+    #其中B为BatchSize的个数
     centroids = torch.zeros(B, npoint, dtype=torch.long).to(device)
+    #distance矩阵(B×N)记录某个batch中所有点到某一个点的距离，初始化的值很大，后面会迭代更新
     distance = torch.ones(B, N).to(device) * 1e10
-    farthest = torch.randint(0, N, (B,), dtype=torch.long).to(device)
+    # 随机初始化最远点下标(1个batch里的)，farthest表示当前最远的点的下标，也是随机初始化，范围为0~N,初始化B个；每个batch都随机有一个初始最远点
+    farthest = torch.randint(0, N, (B,), dtype=torch.long).to(device) # >>> torch.randint(0, 5, (3,)) tensor([4, 3, 4])
+    #batch indices初始化为0~(B-1)的数组
     batch_indices = torch.arange(B, dtype=torch.long).to(device)
+    #直到采样点达到npoint,否则进行如下迭代：
     for i in range(npoint):
-        centroids[:, i] = farthest
-        centroid = xyz[batch_indices, farthest, :].view(B, 1, 3)
+        #设当前的采样点centroids为当前的最远点farthest
+        centroids[:, i] = farthest # 下标
+        #取出该中心点centroid的坐标
+        centroid = xyz[batch_indices, farthest, :].view(B, 1, 3)# batch个中心点
+        #求出所有点到该centroid点的欧式距离，存在dist矩阵中
         dist = torch.sum((xyz - centroid) ** 2, -1)
+        #建立一个mask,如果dist中的元素小于distance?矩阵中保存的距离值，则更新distance中的对应值
+        #随着迭代的继续，distance矩阵中的值会慢慢变小
+        #其相当于记录着某个Batch中每个点距离所有已出现的采样点的最小距离
         mask = dist < distance
         distance[mask] = dist[mask]
-        farthest = torch.max(distance, -1)[1]
+        #从distance矩阵取出最远的点为farthest下标,继续下一轮迭代
+        farthest = torch.max(distance, -1)[1] # 更新下标
     return centroids
 
 
